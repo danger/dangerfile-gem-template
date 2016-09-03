@@ -1,0 +1,146 @@
+#!/usr/bin/env ruby
+
+module Pod
+  class TemplateConfigurator
+    attr_reader :plugin_file
+    attr_reader :plugin_name
+
+    def initialize(plugin_name)
+      unless plugin_name
+        puts 'Please specify a plugin name on the command line.'
+        exit
+      end
+
+      @plugin_file = plugin_name.split('-').last
+      @plugin_name = plugin_name
+    end
+
+    def run
+      unless plugin_name =~ /dangerfile-.+/
+        puts "Plugin name needs to be of the form 'dangerfile-*'."
+        exit
+      end
+
+      if plugin_name.count('-') > 1
+        puts "Plugin name should have one '-', and then '_'s to separate words in your plugin name"
+        puts 'See http://guides.rubygems.org/name-your-gem/ for more info'
+        exit
+      end
+
+      puts "Configuring #{plugin_name}"
+      print_info
+      clean_template_files
+      replace_variables_in_files
+      rename_template_files
+      reinitialize_git_repo
+      bundle_install
+      run_tests
+      build_gem
+      puts "Done."
+    end
+
+    #----------------------------------------#
+
+    def print_info
+      puts "user name:#{user_name}"
+      puts "user email:#{user_email}"
+      puts "year:#{year}"
+    end
+
+    def clean_template_files
+      `rm -rf configure`
+      `rm -rf README.md`
+      `rm -rf LICENSE`
+    end
+
+    def replace_variables_in_files
+      file_names = [
+        'GEM_CHANGELOG.md',
+        'GEM_CONTRIBUTING.md',
+        'GEM_RELEASING.md',
+        'GEM_LICENSE.txt',
+        'GEM_README.md',
+        'Gemfile',
+        'GEM.gemspec.template',
+        'lib/GEM.rb',
+        'lib/GEM/gem_version.rb',
+        'spec/GEM_spec.rb'
+      ]
+
+      file_names.each do |file_name|
+        text = File.read(file_name)
+        # dangerfile-no_eggs_please -> DangerNoEggsPlease
+        text.gsub!('${GEM_CLASS}', plugin_name.split(/\-|_/).map(&:capitalize).join)
+        # dangerfile-no_eggs_please -> NoEggsPlease
+        text.gsub!('${GEM_MODULE}', "Dangerfile#{plugin_name.gsub('dangerfile-', '').split('_').map(&:capitalize).join}")
+        # dangerfile-no_eggs_please -> no_eggs_please
+        text.gsub!('${GEM_FILE}', plugin_file)
+        text.gsub!('${GEM_NAME}', plugin_name)
+        text.gsub!('${USER_NAME}', user_name)
+        text.gsub!('${USER_EMAIL}', user_email)
+        text.gsub!('${YEAR}', year)
+        File.open(file_name, 'w') { |file| file.puts text }
+      end
+    end
+
+    def rename_template_files
+      `mv GEM_Dangerfile Dangerfile`
+      `mv GEM_CHANGELOG.md CHANGELOG.md`
+      `mv GEM_CONTRIBUTING.md CONTRIBUTING.md`
+      `mv GEM_RELEASING.md RELEASING.md`
+      `mv GEM_LICENSE.txt LICENSE.txt`
+      `mv GEM_README.md README.md`
+      `mv GEM.gemspec.template #{plugin_name}.gemspec`
+      `mv lib/GEM.rb lib/danger_#{plugin_file}.rb`
+      `mv lib/GEM lib/#{plugin_file}`
+      `mv spec/GEM_spec.rb spec/#{plugin_file}_spec.rb`
+    end
+
+    def reinitialize_git_repo
+      `rm -rf .git`
+      `git init`
+      `git add -A`
+      `git commit -m "Initial commit."`
+    end
+
+    def bundle_install
+      puts 'Running bundle install'
+      `bundle install`
+    end
+
+    def run_tests
+      puts 'Running rake'
+      `rake`
+    end
+
+    def build_gem
+      puts 'Running rake build'
+      `rake build`
+    end
+
+    #----------------------------------------#
+
+    def user_name
+      (ENV['GIT_COMMITTER_NAME'] || `git config user.name`).strip
+    end
+
+    def user_email
+      (ENV['GIT_COMMITTER_EMAIL'] || `git config user.email`).strip
+    end
+
+    def year
+      Time.now.year.to_s
+    end
+
+    #----------------------------------------#
+  end
+end
+
+#-----------------------------------------------------------------------------#
+
+# TODO: Handle description
+# TODO: Handle usage
+# TODO: Handle GitHub URL
+
+plugin_name = ARGV.shift
+Pod::TemplateConfigurator.new(plugin_name).run
